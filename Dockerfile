@@ -28,7 +28,10 @@ COPY install/requirements.txt /workspace/requirements.txt
 # Change the working directory.
 WORKDIR /workspace
 
+RUN pip install opencv-python
+
 # Install the requirements.
 RUN pip install -r requirements.txt
+
 
 CMD ["bash"]

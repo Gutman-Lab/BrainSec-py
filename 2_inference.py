@@ -116,7 +116,7 @@ def saveBrainSegImage(nums, save_dir) :
 def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR):
     img_size = 1536
     stride = 16
-    batch_size = 96 
+    batch_size = 8 
     num_workers = 16
 
     norm = np.load('utils/normalization.npy', allow_pickle=True).item() # brainseg
