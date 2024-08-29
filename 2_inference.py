@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # coding: utf-8
 
 # ### 2 Main Pipeline for Inference
@@ -113,137 +112,7 @@ def saveBrainSegImage(nums, save_dir) :
     save_img.save(save_dir)
     print("Saved at: " + save_dir)
     
-def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR):
-    img_size = 1536
-    stride = 16
-    batch_size = 8 
-    num_workers = 16
-
-    norm = np.load('utils/normalization.npy', allow_pickle=True).item() # brainseg
-    normalize = transforms.Normalize(norm['mean'], norm['std'])
-
-    to_tensor = transforms.ToTensor()
     
-    # Retrieve Files
-    filenames = glob.glob(IMG_DIR + '*')
-    filenames = [filename.split('/')[-1] for filename in filenames]
-    filenames = sorted(filenames)
-    print(filenames)
-
-    # Check GPU:
-    use_gpu = torch.cuda.is_available()
-    
-    # instatiate the model
-    plaq_model = torch.load(MODEL_PLAQ, map_location=lambda storage, loc: storage)
-    seg_model = torch.load(MODEL_SEG, map_location=lambda storage, loc: storage)
-    
-    if use_gpu:
-        seg_model = seg_model.cuda() # Segmentation
-        plaq_model = plaq_model.module.cuda() # Plaquebox-paper
-    else:
-        seg_model = seg_model
-        plaq_model = plaq_model.module
-
-    # Inference Loop:
-
-    for filename in filenames[:]:
-        print("Now processing: ", filename)
-        
-        # Retrieve Files
-        TILE_DIR = IMG_DIR+'{}/0/'.format(filename)
-
-        imgs = []
-        for target in sorted(os.listdir(TILE_DIR)):
-            d = os.path.join(TILE_DIR, target)
-            if not os.path.isdir(d):
-                continue
-
-            for root, _, fnames in sorted(os.walk(d)):
-                for fname in sorted(fnames):
-                    if fname.endswith('.jpg'):
-                        path = os.path.join(root, fname)
-                        imgs.append(path)
-
-        rows = [int(image.split('/')[-2]) for image in imgs]
-        row_nums = max(rows) + 1
-        cols = [int(image.split('/')[-1].split('.')[0]) for image in imgs]
-        col_nums = max(cols) +1    
-        
-        # Initialize outputs accordingly:
-        heatmap_res = img_size // stride
-        plaque_output = np.zeros((3, heatmap_res*row_nums, heatmap_res*col_nums))
-        seg_output = np.zeros((heatmap_res*row_nums, heatmap_res*col_nums), dtype=np.uint8)
-
-        seg_model.train(False)  # Set model to evaluate mode
-        plaq_model.train(False)
-        
-        start_time = time.perf_counter() # To evaluate Time taken per inference
-
-        for row in tqdm(range(row_nums)):
-            for col in range(col_nums):
-
-                image_datasets = HeatmapDataset(TILE_DIR, row, col, normalize, stride=stride)
-                dataloader = torch.utils.data.DataLoader(image_datasets, batch_size=batch_size,
-                                                    shuffle=False, num_workers=num_workers)
-                
-                # From Plaque-Detection:
-                running_plaques = torch.Tensor(0)
-                # For Stride 32 (BrainSeg):
-                running_seg = torch.zeros((32), dtype=torch.uint8)
-                output_class = np.zeros((heatmap_res, heatmap_res), dtype=np.uint8)
-                
-                for idx, data in enumerate(dataloader):
-                    # get the inputs
-                    inputs = data
-                    # wrap them in Variable
-                    if use_gpu:
-                        inputs = Variable(inputs.cuda(), volatile=True)
-                        
-                        # forward (Plaque Detection) :
-                        outputs = plaq_model(inputs)
-                        preds = F.sigmoid(outputs) # Posibility for each class = [0,1]
-                        preds = preds.data.cpu()
-                        running_plaques = torch.cat([running_plaques, preds])
-                        
-                        # forward (BrainSeg) :
-                        predict = seg_model(inputs)
-                        _, indices = torch.max(predict.data, 1) # indices = 0:Background, 1:WM, 2:GM
-                        indices = indices.type(torch.uint8)
-                        running_seg =  indices.data.cpu()
-
-                        # For Stride 32 (BrainSeg) :
-                        i = (idx // (heatmap_res//batch_size))
-                        j = (idx % (heatmap_res//batch_size))
-                        output_class[i,j*batch_size:(j+1)*batch_size] = running_seg
-                
-                # Final Outputs of Brain Segmentation
-                seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
-                
-                # Final Outputs of Plaque Detection:
-                cored = np.asarray(running_plaques[:,0]).reshape(img_size//stride,img_size//stride)
-                diffuse = np.asarray(running_plaques[:,1]).reshape(img_size//stride,img_size//stride)
-                caa = np.asarray(running_plaques[:,2]).reshape(img_size//stride,img_size//stride)
-                
-                plaque_output[0, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = cored
-                plaque_output[1, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = diffuse
-                plaque_output[2, row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = caa
-
-                seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
-
-        # Saving Confidence=[0,1] for Plaque Detection
-        np.save(SAVE_PLAQ_DIR+filename, plaque_output)
-        
-        # Saving BrainSeg Classification={0,1,2}
-        np.save(SAVE_NP_DIR+filename, seg_output)
-        saveBrainSegImage(seg_output, \
-                        SAVE_IMG_DIR + filename + '.png')
-        
-        # Time Statistics for Inference
-        end_time = time.perf_counter()
-        print("Time to process " \
-            + filename \
-            + ": ", end_time-start_time, "sec")
-        
 def plot_heatmap(final_output) :
     """
     Plots Confidence Heatmap of Plaques = [0,1]
@@ -279,6 +148,125 @@ def plot_heatmap(final_output) :
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.1)
     plt.colorbar(im, cax=cax, ticks=[0.0, 0.25, 0.5, 0.75, 1.0])
+    
+    
+def inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR):
+    # Some hard coded parameters
+    img_size = 1536  # first script tiles the images at this size
+    stride = 16
+    batch_size = 8 
+    num_workers = 4
+
+    norm = np.load('utils/normalization.npy', allow_pickle=True).item() # brainseg
+    normalize = transforms.Normalize(norm['mean'], norm['std'])
+
+    to_tensor = transforms.ToTensor()
+    
+    # Retrieve Files
+    filenames = glob.glob(IMG_DIR + '*')
+    filenames = [filename.split('/')[-1] for filename in filenames]
+    filenames = sorted(filenames)
+    print(filenames)
+
+    # Check GPU:
+    use_gpu = torch.cuda.is_available()
+    
+    print("Using GPU?" , use_gpu)
+        
+    # instatiate the model
+    # plaq_model = torch.load(MODEL_PLAQ, map_location=lambda storage, loc: storage)
+    seg_model = torch.load(MODEL_SEG, map_location=lambda storage, loc: storage)
+        
+    if use_gpu:
+        seg_model = seg_model.cuda() # Segmentation
+        # plaq_model = plaq_model.module.cuda() # Plaquebox-paper
+    else:
+        seg_model = seg_model
+        # plaq_model = plaq_model.module
+
+    # Loop through each file.
+    for filename in filenames[:]:
+        print("Now processing: ", filename)
+                
+        # Directory structure. This TILE_DIR contains subdirectories with numbers from 0 to N
+        # where the int is the row for the tiles (grid tiling). In each subirectory is the tiles
+        # for that row.
+        TILE_DIR = IMG_DIR+'{}/0/'.format(filename)
+
+        imgs = []
+        for target in sorted(os.listdir(TILE_DIR)):
+            d = os.path.join(TILE_DIR, target)
+            if not os.path.isdir(d):
+                continue
+
+            for root, _, fnames in sorted(os.walk(d)):
+                for fname in sorted(fnames):
+                    if fname.endswith('.jpg'):
+                        path = os.path.join(root, fname)
+                        imgs.append(path)
+
+        rows = [int(image.split('/')[-2]) for image in imgs]
+        row_nums = max(rows) + 1
+        cols = [int(image.split('/')[-1].split('.')[0]) for image in imgs]
+        col_nums = max(cols) +1    
+        
+        # Initialize outputs accordingly:
+        heatmap_res = img_size // stride
+        # plaque_output = np.zeros((3, heatmap_res*row_nums, heatmap_res*col_nums))
+        seg_output = np.zeros((heatmap_res*row_nums, heatmap_res*col_nums), dtype=np.uint8)
+
+        seg_model.train(False)  # Set model to evaluate mode
+        # plaq_model.train(False)
+                
+        start_time = time.perf_counter() # To evaluate Time taken per inference
+
+        for row in tqdm(range(row_nums)):
+            col_ns = list(range(col_nums))
+            for jc, col in enumerate(col_ns):
+                print(f"Column {jc+1} of {col_nums}")
+                image_datasets = HeatmapDataset(TILE_DIR, row, col, normalize, stride=stride)
+                dataloader = torch.utils.data.DataLoader(
+                    image_datasets, batch_size=batch_size, shuffle=False, 
+                    num_workers=num_workers
+                )
+                
+                # For Stride 32 (BrainSeg):
+                running_seg = torch.zeros((32), dtype=torch.uint8)
+                output_class = np.zeros((heatmap_res, heatmap_res), dtype=np.uint8)
+                
+                for idx, data in enumerate(dataloader):
+                    # get the inputs
+                    inputs = data
+                    # wrap them in Variable
+                    with torch.no_grad():
+                        if use_gpu:
+                            inputs = Variable(inputs.cuda())
+                        
+                            # forward (BrainSeg) :
+                            predict = seg_model(inputs)
+                            _, indices = torch.max(predict.data, 1) # indices = 0:Background, 1:WM, 2:GM
+                            indices = indices.type(torch.uint8)
+                            running_seg =  indices.data.cpu()
+
+                            # For Stride 32 (BrainSeg) :
+                            i = (idx // (heatmap_res//batch_size))
+                            j = (idx % (heatmap_res//batch_size))
+                            output_class[i,j*batch_size:(j+1)*batch_size] = running_seg
+                
+                        # Final Outputs of Brain Segmentation
+                        seg_output[row*heatmap_res:(row+1)*heatmap_res, col*heatmap_res:(col+1)*heatmap_res] = output_class
+        
+        # Saving BrainSeg Classification={0,1,2}
+        np.save(SAVE_NP_DIR+filename, seg_output)
+        saveBrainSegImage(seg_output, \
+                        SAVE_IMG_DIR + filename + '.png')
+        
+        # Time Statistics for Inference
+        end_time = time.perf_counter()
+        print("Time to process " \
+            + filename \
+            + ": ", end_time-start_time, "sec")
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -311,10 +299,13 @@ def main():
 
     if not os.path.exists(IMG_DIR):
         print("Tiled image folder does not exist, script should stop now")
+        return
     elif not os.path.exists(MODEL_PLAQ):
         print("Plaque detection model does not exist, script should stop now")
+        return
     elif not os.path.exists(MODEL_SEG):
         print("Segmentation model does not exist, script should stop now")
+        return
     else:
         if not os.path.exists(SAVE_PLAQ_DIR):
             os.makedirs(SAVE_PLAQ_DIR)
@@ -330,10 +321,11 @@ def main():
         print(filenames)
 
     #----------------------------------------------------------
-
+    print()
     inference(IMG_DIR, MODEL_PLAQ, SAVE_PLAQ_DIR, MODEL_SEG, SAVE_IMG_DIR, SAVE_NP_DIR)
     print("____________________________________________")
     print("Segmentation masks and heatmaps generated")
+
 
 if __name__ == "__main__":
     main()

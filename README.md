@@ -1,4 +1,20 @@
-# BrainSec
+# BrainSec Fork
+
+## This Fork
+
+Is focused on running this code on Docker instead of apptainer and on the gray matter segmentation only.
+
+### For development
+1. Clone the repository: ```$ git clone https://github.com/Gutman-Lab/BrainSec-py.git```
+2. Create data directory and wsi subdirectory and add one or more sample WSI files.
+3. Build the image from Dockerfile: ```$ docker build -t brainsec-py .```
+4. Run container while mounting the local repository, allow GPUs to be used: ```$ docker run -it --rm -v .:/workspace --gpus all brainsec-py```
+5. Test out the three scripts:
+    * ```$ python 1_preprocessing.py```
+    * ```$ python 2_inference.py```
+    * ```$ python 3_postprocessing.py```
+
+## Overview from Original Repo
 
 Automated Grey and White Matter Segmentation in Digitized A*β*
 Human Brain Tissue WSI. This is the implementation details for the paper: 
