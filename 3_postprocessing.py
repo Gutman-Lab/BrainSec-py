@@ -280,77 +280,6 @@ def post_brainseg(BRAINSEG_NP_PRE_DIR, POST_NP_DIR, POST_IMG_DIR, filenames):
                           POST_IMG_DIR + filename + '.png')
 
 
-def post_plaque(SAVE_DIR, CSV_FILE, HEATMAP_DIR, POST_NP_DIR, SAVE_IMG_DIR, SAVE_NP_DIR, filenames):
-    # To create CSV containing WSI names for
-    # plaque counting at different regions
-    file = pd.DataFrame({"WSI_ID": filenames})
-    file.to_csv(CSV_FILE, index=False)
-    print('Index CSV:', CSV_FILE)
-
-    # Using existing CSV
-    file = pd.read_csv(CSV_FILE)
-    filenames = list(file['WSI_ID'])
-    img_class = ['cored', 'diffuse', 'caa']
-    
-    # two hyperparameters (For Plaque-Counting)
-    confidence_thresholds = [0.1, 0.95, 0.9]
-    pixel_thresholds = [100, 1, 200]
-
-    new_file = file
-    for index in [0,1,2]:
-        preds = np.zeros(len(file))
-        confidence_threshold = confidence_thresholds[index]
-        pixel_threshold = pixel_thresholds[index]
-        
-        bg = np.zeros(len(file))
-        wm = np.zeros(len(file))
-        gm = np.zeros(len(file))
-        unknowns = np.zeros(len(file))
-
-        for i, WSIname in enumerate(tqdm(filenames)):
-            try:
-                heatmap_path = HEATMAP_DIR+'new_WSI_heatmap_{}.npy'.format(WSIname)
-                h = np.load(heatmap_path)
-
-            except:
-                heatmap_path = HEATMAP_DIR+'{}.npy'.format(WSIname)
-                h = np.load(heatmap_path)
-                seg_path = POST_NP_DIR+'{}.npy'.format(WSIname)
-                seg = np.load(seg_path)
-
-            mask = h[index] > confidence_threshold
-            mask = mask.astype(np.float32)
-
-            kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(5,5))
-
-            # Apply morphological closing, then opening operations 
-            opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-            closing = cv2.morphologyEx(opening, cv2.MORPH_CLOSE, kernel)
-
-            labels, img_mask, labeled_mask = count_blobs(closing, threshold=pixel_threshold)
-            counts, bg[i], wm[i], gm[i], unknowns[i] = classify_blobs(labeled_mask, seg)
-        
-            save_img = SAVE_IMG_DIR + WSIname \
-                        + "_" + img_class[index] + ".png"
-            save_np = SAVE_NP_DIR + WSIname \
-                        + "_" + img_class[index] + ".npy"
-            np.save(save_np, labeled_mask)
-            saveUniqueMaskImage(labeled_mask, save_img) # To show Colored Result
-    #         saveMask(img_mask, save_img)  # To show Classification Result
-            
-            preds[i] = len(labels)
-            
-        print(confidence_threshold, pixel_threshold)
-
-        new_file['CNN_{}_count'.format(img_class[index])] = preds
-        new_file['BG_{}_count'.format(img_class[index])] = bg
-        new_file['GM_{}_count'.format(img_class[index])] = gm
-        new_file['WM_{}_count'.format(img_class[index])] = wm
-        new_file['{}_no-count'.format(img_class[index])] = unknowns
-        
-    new_file.to_csv(SAVE_DIR+'CNN_vs_CERAD.csv', index=False)
-    print('CSVs saved at', SAVE_DIR)
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", type=str, default='data/', help="Data Directory")
@@ -379,10 +308,12 @@ def main():
 
     if not os.path.exists(ODR):
         print("Data folder does not exist, script should stop now")
+        return
     elif not os.path.exists(BRAINSEG_NP_PRE_DIR):
         print("Mask folder does not exist, script should stop now")
-    elif not os.path.exists(HEATMAP_DIR):
-        print("Heatmap folder does not exist, script should stop now")
+        return
+    # elif not os.path.exists(HEATMAP_DIR):
+    #     print("Heatmap folder does not exist, script should stop now")
     else:
         if not os.path.exists(SAVE_DIR):
             os.makedirs(SAVE_DIR)
@@ -410,7 +341,7 @@ def main():
     print("Post-processing for BrainSeg finished")
     print("____________________________________________")
     print("Post-processing for Plaques ...")
-    post_plaque(SAVE_DIR, CSV_FILE, HEATMAP_DIR, POST_NP_DIR, SAVE_IMG_DIR, SAVE_NP_DIR, filenames)
+    # post_plaque(SAVE_DIR, CSV_FILE, HEATMAP_DIR, POST_NP_DIR, SAVE_IMG_DIR, SAVE_NP_DIR, filenames)
     print("Post-processing for Plaques finished")
     print("____________________________________________")
     print("Post-processing finished")
