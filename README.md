@@ -4,6 +4,10 @@
 
 Is focused on running this code on Docker instead of apptainer and on the gray matter segmentation only.
 
+### Concise version of code
+* See "For development" section below for how to run the Docker container
+* Run a single script: "gray-white-matter-segmentatioin.py" and pass as input a WSI file and a directory to save output label masks and RGB image representations of the gray / white matter segmentation.
+
 ### For development
 1. Clone the repository: ```$ git clone https://github.com/Gutman-Lab/BrainSec-py.git```
 2. Create data directory and wsi subdirectory and add one or more sample WSI files.
