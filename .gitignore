@@ -140,3 +140,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Ignore default temporary directory created during segmentation script.
+.temp/
+
+# Ignore the local results directory.
+results/
